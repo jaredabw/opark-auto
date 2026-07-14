@@ -68,14 +68,20 @@ async function run() {
     // --- Start parking session ---
     log(`Selecting vehicle: ${VEHICLE}`);
     await page.getByText('Select Vehicle').click();
+    const vehicleOptions = await page.getByRole('option').allTextContents();
+    log(`Vehicle options: ${vehicleOptions.join(', ')}`);
     await page.getByRole('option', { name: VEHICLE }).click();
 
     log(`Selecting location: ${LOCATION}`);
     await page.getByText('Select Location').click();
+    const locationOptions = await page.getByRole('option').allTextContents();
+    log(`Location options: ${locationOptions.join(', ')}`);
     await page.getByText(LOCATION).click();
 
     log(`Selecting zone: ${ZONE}`);
     await page.getByText('Select Zone').click();
+    const zoneOptions = await page.getByRole('option').allTextContents();
+    log(`Zone options: ${zoneOptions.join(', ')}`);
     await page.getByText(ZONE).click();
 
     log('Clicking Start Parking button');
