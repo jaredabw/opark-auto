@@ -65,9 +65,17 @@ async function run() {
     log('Clicking Login button');
     await page.getByRole('button', { name: 'Login' }).click();
 
+    // Wait for dashboard to load and vehicle dropdown to be populated
+    log('Waiting for dashboard to load');
+    await page.waitForURL('**/dashboard**', { timeout: 15000 }).catch(() => {});
+    await page.waitForSelector('text=Select Vehicle', { timeout: 15000 });
+    // Wait for the dropdown options to actually be populated via API
+    await page.waitForTimeout(3000);
+
     // --- Start parking session ---
     log(`Selecting vehicle: ${VEHICLE}`);
     await page.getByText('Select Vehicle').click();
+    await page.waitForSelector('[role="option"]', { timeout: 10000 });
     const vehicleOptions = await page.getByRole('option').allTextContents();
     log(`Vehicle options: ${vehicleOptions.join(', ')}`);
     await page.getByRole('option', { name: VEHICLE }).click();
