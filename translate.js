@@ -74,46 +74,55 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Image uploaded');
 
-    // Give Google a chance to process the upload.
-    //
-    // We don't assume a particular final URL because Google
-    // can rewrite the Translate URL.
-    await page.waitForTimeout(3000);
+    await page.waitForTimeout(10000);
 
-    console.log(
-      '[translate] URL after upload:',
-      page.url()
+    console.log('[translate] 10 seconds elapsed');
+
+    const debug = await page.evaluate(() => {
+    const text = document.body?.innerText || '';
+
+    const buttons = [...document.querySelectorAll('button')];
+
+    const showOriginal = buttons.find(
+        b => b.getAttribute('aria-label') === 'Show original'
     );
 
-    // Wait for the image-translation UI to change.
-    //
-    // We're deliberately not depending on a very specific
-    // Google class name here because those are frequently
-    // generated/changed.
-    await page.waitForFunction(() => {
-      const text = document.body
-        ? document.body.innerText || ''
-        : '';
+    const images = [...document.images].map((img, i) => ({
+        index: i,
+        src: img.src.slice(0, 300),
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        alt: img.alt
+    }));
 
-      return (
-        text.includes('Translated') ||
-        text.includes('Original') ||
-        document.querySelectorAll('img').length > 6
-      );
-    }, {
-      timeout: 15000
-    }).catch(() => {
-      // Don't fail solely because Google's UI text changed.
-      console.log(
-        '[translate] Result detection timed out; taking page screenshot anyway'
-      );
+    return {
+        url: location.href,
+
+        showOriginal: showOriginal
+        ? {
+            exists: true,
+            ariaChecked: showOriginal.getAttribute('aria-checked'),
+            text: showOriginal.innerText
+            }
+        : {
+            exists: false
+            },
+
+        imageCount: images.length,
+        images,
+
+        bodyText: text.slice(0, 8000)
+    };
     });
 
-    console.log('[translate] Taking result screenshot');
+    console.log(
+    '[translate] DEBUG:',
+    JSON.stringify(debug, null, 2)
+    );
 
     const screenshot = await page.screenshot({
-      type: 'png',
-      fullPage: true
+    type: 'png',
+    fullPage: true
     });
 
     return screenshot;
