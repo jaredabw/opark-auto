@@ -81,58 +81,121 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Translation result is available');
 
-    const downloadButton = page.getByRole(
+    const showOriginal = page.getByRole(
     'button',
-    { name: 'Download translation' }
+    { name: 'Show original' }
+    );
+
+    const downloadTranslation = async (label) => {
+    const downloadButton = page.getByRole(
+        'button',
+        { name: 'Download translation' }
     );
 
     await downloadButton.waitFor({
-    state: 'visible',
-    timeout: 10000
+        state: 'visible',
+        timeout: 10000
     });
 
-    console.log('[translate] Download translation button found');
-
     const downloadPromise = page.waitForEvent('download', {
-    timeout: 15000
+        timeout: 15000
     });
 
     await downloadButton.click();
 
     const download = await downloadPromise;
-
     const filename = download.suggestedFilename();
-
-    console.log(
-    '[translate] Download started:',
-    filename
-    );
 
     const stream = await download.createReadStream();
 
     if (!stream) {
-    throw new Error('Google download stream was not available');
+        throw new Error(`No download stream for ${label}`);
     }
 
     const chunks = [];
 
     for await (const chunk of stream) {
-    chunks.push(chunk);
+        chunks.push(chunk);
     }
 
     const buffer = Buffer.concat(chunks);
 
     console.log(
-    '[translate] Downloaded translated image:',
-    buffer.length,
-    'bytes'
+        `[translate] ${label}: ${filename}, ${buffer.length} bytes`
     );
 
     return {
-    buffer,
-    filename
+        buffer,
+        filename
+    };
     };
 
+
+    // We should currently be showing the translation.
+    console.log(
+    '[translate] Show original state:',
+    await showOriginal.getAttribute('aria-checked')
+    );
+
+    const translatedDownload = await downloadTranslation(
+    'TRANSLATED VIEW'
+    );
+
+
+    // Now switch to original.
+    await showOriginal.click();
+
+    await page.waitForFunction(() => {
+    const button = [...document.querySelectorAll('button')]
+        .find(b => b.getAttribute('aria-label') === 'Show original');
+
+    return button &&
+        button.getAttribute('aria-checked') === 'true';
+    });
+
+    console.log('[translate] Switched to original view');
+
+    const originalDownload = await downloadTranslation(
+    'ORIGINAL VIEW'
+    );
+
+
+    // Put it back into translated view.
+    await showOriginal.click();
+
+    await page.waitForFunction(() => {
+    const button = [...document.querySelectorAll('button')]
+        .find(b => b.getAttribute('aria-label') === 'Show original');
+
+    return button &&
+        button.getAttribute('aria-checked') === 'false';
+    });
+
+    console.log('[translate] Switched back to translated view');
+
+    console.log(
+    '[translate] Download sizes:',
+    {
+        translated: translatedDownload.buffer.length,
+        original: originalDownload.buffer.length
+    }
+    );
+
+    const same =
+    translatedDownload.buffer.equals(originalDownload.buffer);
+
+    console.log(
+    '[translate] Downloads byte-identical:',
+    same
+    );
+
+    if (same) {
+    throw new Error(
+        'Google returned identical files for translated and original views'
+    );
+    }
+
+    return translatedDownload;
   } finally {
     await context.close();
   }
