@@ -81,9 +81,9 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Translation result is available');
 
-    const downloadButton = page.getByText(
-    'Download translation',
-    { exact: true }
+    const downloadButton = page.getByRole(
+    'button',
+    { name: 'Download translation' }
     );
 
     await downloadButton.waitFor({

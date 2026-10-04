@@ -133,7 +133,20 @@ app.post(
 
       const result = await translateImage(req.body);
 
-      res.type('png').send(result);
+      if (result.filename.endsWith('.png')) {
+        res.type('png');
+      } else if (
+        result.filename.endsWith('.jpg') ||
+        result.filename.endsWith('.jpeg')
+      ) {
+        res.type('jpeg');
+      } else if (result.filename.endsWith('.webp')) {
+        res.type('webp');
+      } else {
+        res.type('application/octet-stream');
+      }
+
+      res.send(result.buffer);
 
       log('Image translation completed');
 
