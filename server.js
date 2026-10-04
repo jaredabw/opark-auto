@@ -8,6 +8,7 @@ const { DateTime } = require('luxon');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
+const { translateImage } = require('./translate');
 
 require('dotenv').config({ path: path.join(__dirname, '.opark-credentials') });
 
@@ -99,5 +100,54 @@ app.post('/cancel', checkAuth, (req, res) => {
   log('Cancelled pending run');
   res.json({ status: 'cancelled' });
 });
+
+// Translate an image using Google Translate's web UI.
+//
+// Request body:
+//   raw image/jpeg bytes
+//
+// Response:
+//   image/png screenshot of the Google Translate result page
+app.post(
+  '/translate-image',
+  checkAuth,
+  express.raw({
+    type: [
+      'image/jpeg',
+      'image/png',
+      'image/webp'
+    ],
+    limit: '15mb'
+  }),
+  async (req, res) => {
+    try {
+      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+        return res.status(400).json({
+          error: 'No image received'
+        });
+      }
+
+      log(
+        `Image translation requested (${req.body.length} bytes)`
+      );
+
+      const result = await translateImage(req.body);
+
+      res.type('png').send(result);
+
+      log('Image translation completed');
+
+    } catch (err) {
+      log(
+        `Image translation failed: ${err.stack || err.message}`
+      );
+
+      res.status(500).json({
+        error: 'image translation failed',
+        message: err.message
+      });
+    }
+  }
+);
 
 app.listen(PORT, () => log(`Scheduler listening on port ${PORT}`));
