@@ -51,8 +51,6 @@ async function translateImage(imageBuffer) {
       timeout: 30000
     });
 
-    console.log('[translate] Page loaded');
-
     const imageInput = page.locator(
       'input[type="file"][accept*="image/jpeg"]'
     ).first();
@@ -61,8 +59,6 @@ async function translateImage(imageBuffer) {
       state: 'attached',
       timeout: 15000
     });
-
-    console.log('[translate] Image input found');
 
     await imageInput.setInputFiles({
       name: 'screenshot.jpg',
@@ -84,120 +80,143 @@ async function translateImage(imageBuffer) {
       '[translate] Translation result is available'
     );
 
-    // Give Google's result rendering a little time to finish.
     await page.waitForTimeout(2000);
 
     /*
-     * Google renders part of the translated result as a blob-backed
-     * <img>. We want that image directly instead of using Google's
-     * "Download translation" button, which is currently returning
-     * the original uploaded image in Playwright.
+     * Find the uploaded image.
      */
+    const uploadedImageInfo = await page.locator(
+      'img.Jmlpdc'
+    ).first().evaluate(img => {
+      const result = [];
 
-    const blobImages = await page.locator(
-      'img[src^="blob:"]'
-    ).evaluateAll(images =>
-      images.map((img, index) => {
-        const rect = img.getBoundingClientRect();
+      let el = img;
 
-        return {
-          index,
-          src: img.src,
+      for (let i = 0; i < 8 && el; i++, el = el.parentElement) {
+        const rect = el.getBoundingClientRect();
+
+        result.push({
+          level: i,
+          tag: el.tagName,
+          id: el.id || null,
+          className:
+            typeof el.className === 'string'
+              ? el.className
+              : null,
           width: rect.width,
           height: rect.height,
-          naturalWidth: img.naturalWidth,
-          naturalHeight: img.naturalHeight,
-          className:
-            typeof img.className === 'string'
-              ? img.className
-              : null
-        };
-      })
-    );
-
-    console.log(
-      '[translate] Blob images:',
-      JSON.stringify(blobImages, null, 2)
-    );
-
-    if (blobImages.length === 0) {
-      throw new Error(
-        'No blob-backed result image found'
-      );
-    }
-
-    /*
-     * Prefer a visible blob image with the largest area.
-     * This avoids accidentally selecting tiny UI images.
-     */
-    const candidates = blobImages
-      .filter(img =>
-        img.width > 50 &&
-        img.height > 50 &&
-        img.naturalWidth > 50 &&
-        img.naturalHeight > 50
-      )
-      .sort(
-        (a, b) =>
-          (b.width * b.height) -
-          (a.width * a.height)
-      );
-
-    if (candidates.length === 0) {
-      throw new Error(
-        'Blob images were found, but none looked like a result image'
-      );
-    }
-
-    const target = candidates[0];
-
-    console.log(
-      '[translate] Using blob image:',
-      JSON.stringify(target)
-    );
-
-    /*
-     * Fetch the blob from inside the Google Translate page.
-     * This is important because the blob URL belongs to the page's
-     * browser context.
-     */
-    const imageData = await page.evaluate(async (src) => {
-      const response = await fetch(src);
-
-      if (!response.ok) {
-        throw new Error(
-          `Blob fetch failed: HTTP ${response.status}`
-        );
+          text: (el.innerText || '').trim().slice(0, 300),
+          outerHTML: el.outerHTML.slice(0, 3000)
+        });
       }
 
-      const blob = await response.blob();
-      const arrayBuffer = await blob.arrayBuffer();
-
-      return {
-        type: blob.type,
-        bytes: Array.from(new Uint8Array(arrayBuffer))
-      };
-    }, target.src);
-
-    const buffer = Buffer.from(imageData.bytes);
+      return result;
+    });
 
     console.log(
-      '[translate] Extracted blob image:',
-      buffer.length,
-      'bytes',
-      'type:',
-      imageData.type
+      '[translate] UPLOADED IMAGE PARENTS:',
+      JSON.stringify(uploadedImageInfo, null, 2)
     );
 
-    if (buffer.length === 0) {
-      throw new Error(
-        'Extracted blob image was empty'
-      );
-    }
+    /*
+     * Inspect every reasonably large element around the result.
+     *
+     * We are specifically looking for something approximately
+     * the same size as the uploaded image, or something containing
+     * canvas/background-image/content.
+     */
+    const largeElements = await page.evaluate(() => {
+      const result = [];
+
+      for (const el of document.querySelectorAll('*')) {
+        const rect = el.getBoundingClientRect();
+
+        if (rect.width < 100 || rect.height < 40) {
+          continue;
+        }
+
+        const style = getComputedStyle(el);
+
+        const hasBackground =
+          style.backgroundImage &&
+          style.backgroundImage !== 'none';
+
+        const hasCanvas =
+          el.querySelector('canvas') !== null;
+
+        const hasImage =
+          el.querySelector('img') !== null;
+
+        if (!hasBackground && !hasCanvas && !hasImage) {
+          continue;
+        }
+
+        result.push({
+          tag: el.tagName,
+          id: el.id || null,
+          className:
+            typeof el.className === 'string'
+              ? el.className
+              : null,
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+          x: Math.round(rect.x),
+          y: Math.round(rect.y),
+          backgroundImage:
+            hasBackground
+              ? style.backgroundImage.slice(0, 1000)
+              : null,
+          canvasCount:
+            el.querySelectorAll('canvas').length,
+          imageCount:
+            el.querySelectorAll('img').length,
+          text:
+            (el.innerText || '').trim().slice(0, 200)
+        });
+      }
+
+      return result;
+    });
+
+    console.log(
+      '[translate] LARGE RESULT ELEMENTS:',
+      JSON.stringify(largeElements, null, 2)
+    );
 
     /*
-     * Save a diagnostic screenshot of the Google result page.
-     * This is only logged for debugging and is not returned.
+     * Also inspect all canvases directly.
+     */
+    const canvases = await page.evaluate(() => {
+      return [...document.querySelectorAll('canvas')].map(
+        (canvas, index) => {
+          const rect = canvas.getBoundingClientRect();
+
+          return {
+            index,
+            width: canvas.width,
+            height: canvas.height,
+            displayWidth: rect.width,
+            displayHeight: rect.height,
+            x: rect.x,
+            y: rect.y,
+            className:
+              typeof canvas.className === 'string'
+                ? canvas.className
+                : null,
+            outerHTML:
+              canvas.outerHTML.slice(0, 1000)
+          };
+        }
+      );
+    });
+
+    console.log(
+      '[translate] CANVASES:',
+      JSON.stringify(canvases, null, 2)
+    );
+
+    /*
+     * Save the whole translated page screenshot as a diagnostic.
      */
     const screenshot = await page.screenshot({
       type: 'png',
@@ -205,22 +224,20 @@ async function translateImage(imageBuffer) {
     });
 
     console.log(
-      '[translate] Result page screenshot:',
+      '[translate] RESULT PAGE SCREENSHOT:',
       screenshot.length,
       'bytes'
     );
 
-    let filename = 'translated.png';
-
-    if (imageData.type === 'image/jpeg') {
-      filename = 'translated.jpg';
-    } else if (imageData.type === 'image/webp') {
-      filename = 'translated.webp';
-    }
-
+    /*
+     * For now return the page screenshot.
+     *
+     * This is intentionally temporary. The next log output will
+     * tell us exactly which element contains the translated image.
+     */
     return {
-      buffer,
-      filename
+      buffer: screenshot,
+      filename: 'translated-page.png'
     };
 
   } finally {
