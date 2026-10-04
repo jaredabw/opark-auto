@@ -72,10 +72,6 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Image uploaded');
 
-    /*
-     * Google displays this text once the image translation
-     * has actually been produced.
-     */
     await page.getByText(
       'Image translation results available',
       { exact: true }
@@ -88,148 +84,120 @@ async function translateImage(imageBuffer) {
       '[translate] Translation result is available'
     );
 
-    /*
-     * Give Google's result UI a moment to finish rendering.
-     */
+    // Give Google's result rendering a little time to finish.
     await page.waitForTimeout(2000);
 
     /*
-     * Diagnostic: inspect the result controls.
+     * Google renders part of the translated result as a blob-backed
+     * <img>. We want that image directly instead of using Google's
+     * "Download translation" button, which is currently returning
+     * the original uploaded image in Playwright.
      */
-    const resultInfo = await page.evaluate(() => {
-      const elements = [...document.querySelectorAll('*')];
 
-      return elements
-        .filter(el => {
-          const text = (el.innerText || '').trim();
+    const blobImages = await page.locator(
+      'img[src^="blob:"]'
+    ).evaluateAll(images =>
+      images.map((img, index) => {
+        const rect = img.getBoundingClientRect();
 
-          return (
-            text === 'Show original' ||
-            text === 'Download translation' ||
-            text === 'Copy text' ||
-            text === 'Image translation results available'
-          );
-        })
-        .map(el => ({
-          tag: el.tagName,
-          text: (el.innerText || '').trim(),
-          ariaLabel: el.getAttribute('aria-label'),
-          role: el.getAttribute('role'),
-          jsname: el.getAttribute('jsname'),
-          className:
-            typeof el.className === 'string'
-              ? el.className
-              : null,
-          outerHTML: el.outerHTML.slice(0, 1500)
-        }));
-    });
-
-    console.log(
-      '[translate] RESULT CONTROLS:',
-      JSON.stringify(resultInfo, null, 2)
-    );
-
-    /*
-     * Diagnostic: inspect visible images/canvases/SVGs.
-     */
-    const visualElements = await page.evaluate(() => {
-      const result = [];
-
-      for (const el of document.querySelectorAll(
-        'img, canvas, svg, [style*="background-image"]'
-      )) {
-        const rect = el.getBoundingClientRect();
-
-        if (rect.width < 20 || rect.height < 20) {
-          continue;
-        }
-
-        result.push({
-          tag: el.tagName,
+        return {
+          index,
+          src: img.src,
           width: rect.width,
           height: rect.height,
-          naturalWidth: el.naturalWidth || null,
-          naturalHeight: el.naturalHeight || null,
-          src: el.src || null,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
           className:
-            typeof el.className === 'string'
-              ? el.className
-              : null,
-          outerHTML: el.outerHTML.slice(0, 1000)
-        });
-      }
-
-      return result;
-    });
+            typeof img.className === 'string'
+              ? img.className
+              : null
+        };
+      })
+    );
 
     console.log(
-      '[translate] VISUAL ELEMENTS:',
-      JSON.stringify(visualElements, null, 2)
+      '[translate] Blob images:',
+      JSON.stringify(blobImages, null, 2)
     );
 
-    /*
-     * Find Google's actual Download translation button.
-     *
-     * getByRole avoids accidentally selecting the hidden
-     * tooltip that also contains the words "Download translation".
-     */
-    const downloadButton = page.getByRole(
-      'button',
-      { name: 'Download translation' }
-    );
-
-    await downloadButton.waitFor({
-      state: 'visible',
-      timeout: 10000
-    });
-
-    console.log(
-      '[translate] Download translation button found'
-    );
-
-    /*
-     * Ask Google to download the translated image.
-     */
-    const downloadPromise = page.waitForEvent('download', {
-      timeout: 15000
-    });
-
-    await downloadButton.click();
-
-    const download = await downloadPromise;
-
-    const filename = download.suggestedFilename();
-
-    console.log(
-      '[translate] Download started:',
-      filename
-    );
-
-    const stream = await download.createReadStream();
-
-    if (!stream) {
+    if (blobImages.length === 0) {
       throw new Error(
-        'Google download stream was not available'
+        'No blob-backed result image found'
       );
     }
 
-    const chunks = [];
+    /*
+     * Prefer a visible blob image with the largest area.
+     * This avoids accidentally selecting tiny UI images.
+     */
+    const candidates = blobImages
+      .filter(img =>
+        img.width > 50 &&
+        img.height > 50 &&
+        img.naturalWidth > 50 &&
+        img.naturalHeight > 50
+      )
+      .sort(
+        (a, b) =>
+          (b.width * b.height) -
+          (a.width * a.height)
+      );
 
-    for await (const chunk of stream) {
-      chunks.push(chunk);
+    if (candidates.length === 0) {
+      throw new Error(
+        'Blob images were found, but none looked like a result image'
+      );
     }
 
-    const buffer = Buffer.concat(chunks);
+    const target = candidates[0];
 
     console.log(
-      '[translate] Downloaded translated image:',
-      buffer.length,
-      'bytes'
+      '[translate] Using blob image:',
+      JSON.stringify(target)
     );
 
     /*
-     * Take a screenshot as well. This isn't returned; it's just
-     * useful if we need to debug what Google showed.
+     * Fetch the blob from inside the Google Translate page.
+     * This is important because the blob URL belongs to the page's
+     * browser context.
+     */
+    const imageData = await page.evaluate(async (src) => {
+      const response = await fetch(src);
+
+      if (!response.ok) {
+        throw new Error(
+          `Blob fetch failed: HTTP ${response.status}`
+        );
+      }
+
+      const blob = await response.blob();
+      const arrayBuffer = await blob.arrayBuffer();
+
+      return {
+        type: blob.type,
+        bytes: Array.from(new Uint8Array(arrayBuffer))
+      };
+    }, target.src);
+
+    const buffer = Buffer.from(imageData.bytes);
+
+    console.log(
+      '[translate] Extracted blob image:',
+      buffer.length,
+      'bytes',
+      'type:',
+      imageData.type
+    );
+
+    if (buffer.length === 0) {
+      throw new Error(
+        'Extracted blob image was empty'
+      );
+    }
+
+    /*
+     * Save a diagnostic screenshot of the Google result page.
+     * This is only logged for debugging and is not returned.
      */
     const screenshot = await page.screenshot({
       type: 'png',
@@ -241,6 +209,14 @@ async function translateImage(imageBuffer) {
       screenshot.length,
       'bytes'
     );
+
+    let filename = 'translated.png';
+
+    if (imageData.type === 'image/jpeg') {
+      filename = 'translated.jpg';
+    } else if (imageData.type === 'image/webp') {
+      filename = 'translated.webp';
+    }
 
     return {
       buffer,
