@@ -101,29 +101,37 @@ async function translateImage(imageBuffer) {
 
     const download = await downloadPromise;
 
+    const filename = download.suggestedFilename();
+
     console.log(
     '[translate] Download started:',
-    download.suggestedFilename()
+    filename
     );
 
-    const resultBuffer = await download.createReadStream()
-    .then(async stream => {
-        const chunks = [];
+    const stream = await download.createReadStream();
 
-        for await (const chunk of stream) {
-        chunks.push(chunk);
-        }
+    if (!stream) {
+    throw new Error('Google download stream was not available');
+    }
 
-        return Buffer.concat(chunks);
-    });
+    const chunks = [];
+
+    for await (const chunk of stream) {
+    chunks.push(chunk);
+    }
+
+    const buffer = Buffer.concat(chunks);
 
     console.log(
     '[translate] Downloaded translated image:',
-    resultBuffer.length,
+    buffer.length,
     'bytes'
     );
 
-    return resultBuffer;
+    return {
+    buffer,
+    filename
+    };
 
   } finally {
     await context.close();

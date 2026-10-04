@@ -133,14 +133,20 @@ app.post(
 
       const result = await translateImage(req.body);
 
-      if (result.filename.endsWith('.png')) {
+      console.log(
+        `[translate] Returning ${result.filename} (${result.buffer.length} bytes)`
+      );
+
+      const filename = result.filename || '';
+
+      if (filename.toLowerCase().endsWith('.png')) {
         res.type('png');
       } else if (
-        result.filename.endsWith('.jpg') ||
-        result.filename.endsWith('.jpeg')
+        filename.toLowerCase().endsWith('.jpg') ||
+        filename.toLowerCase().endsWith('.jpeg')
       ) {
         res.type('jpeg');
-      } else if (result.filename.endsWith('.webp')) {
+      } else if (filename.toLowerCase().endsWith('.webp')) {
         res.type('webp');
       } else {
         res.type('application/octet-stream');
