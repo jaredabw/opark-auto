@@ -53,7 +53,6 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Page loaded');
 
-    // Find the image-upload input.
     const imageInput = page.locator(
       'input[type="file"][accept*="image/jpeg"]'
     ).first();
@@ -65,7 +64,6 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Image input found');
 
-    // This is a genuine Playwright file upload.
     await imageInput.setInputFiles({
       name: 'screenshot.jpg',
       mimeType: 'image/jpeg',
@@ -74,128 +72,181 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Image uploaded');
 
-    await page.getByText('Image translation results available').waitFor({
-    state: 'visible',
-    timeout: 30000
+    /*
+     * Google displays this text once the image translation
+     * has actually been produced.
+     */
+    await page.getByText(
+      'Image translation results available',
+      { exact: true }
+    ).waitFor({
+      state: 'visible',
+      timeout: 30000
     });
 
-    console.log('[translate] Translation result is available');
-
-    const showOriginal = page.getByRole(
-    'button',
-    { name: 'Show original' }
+    console.log(
+      '[translate] Translation result is available'
     );
 
-    const downloadTranslation = async (label) => {
+    /*
+     * Give Google's result UI a moment to finish rendering.
+     */
+    await page.waitForTimeout(2000);
+
+    /*
+     * Diagnostic: inspect the result controls.
+     */
+    const resultInfo = await page.evaluate(() => {
+      const elements = [...document.querySelectorAll('*')];
+
+      return elements
+        .filter(el => {
+          const text = (el.innerText || '').trim();
+
+          return (
+            text === 'Show original' ||
+            text === 'Download translation' ||
+            text === 'Copy text' ||
+            text === 'Image translation results available'
+          );
+        })
+        .map(el => ({
+          tag: el.tagName,
+          text: (el.innerText || '').trim(),
+          ariaLabel: el.getAttribute('aria-label'),
+          role: el.getAttribute('role'),
+          jsname: el.getAttribute('jsname'),
+          className:
+            typeof el.className === 'string'
+              ? el.className
+              : null,
+          outerHTML: el.outerHTML.slice(0, 1500)
+        }));
+    });
+
+    console.log(
+      '[translate] RESULT CONTROLS:',
+      JSON.stringify(resultInfo, null, 2)
+    );
+
+    /*
+     * Diagnostic: inspect visible images/canvases/SVGs.
+     */
+    const visualElements = await page.evaluate(() => {
+      const result = [];
+
+      for (const el of document.querySelectorAll(
+        'img, canvas, svg, [style*="background-image"]'
+      )) {
+        const rect = el.getBoundingClientRect();
+
+        if (rect.width < 20 || rect.height < 20) {
+          continue;
+        }
+
+        result.push({
+          tag: el.tagName,
+          width: rect.width,
+          height: rect.height,
+          naturalWidth: el.naturalWidth || null,
+          naturalHeight: el.naturalHeight || null,
+          src: el.src || null,
+          className:
+            typeof el.className === 'string'
+              ? el.className
+              : null,
+          outerHTML: el.outerHTML.slice(0, 1000)
+        });
+      }
+
+      return result;
+    });
+
+    console.log(
+      '[translate] VISUAL ELEMENTS:',
+      JSON.stringify(visualElements, null, 2)
+    );
+
+    /*
+     * Find Google's actual Download translation button.
+     *
+     * getByRole avoids accidentally selecting the hidden
+     * tooltip that also contains the words "Download translation".
+     */
     const downloadButton = page.getByRole(
-        'button',
-        { name: 'Download translation' }
+      'button',
+      { name: 'Download translation' }
     );
 
     await downloadButton.waitFor({
-        state: 'visible',
-        timeout: 10000
+      state: 'visible',
+      timeout: 10000
     });
 
+    console.log(
+      '[translate] Download translation button found'
+    );
+
+    /*
+     * Ask Google to download the translated image.
+     */
     const downloadPromise = page.waitForEvent('download', {
-        timeout: 15000
+      timeout: 15000
     });
 
     await downloadButton.click();
 
     const download = await downloadPromise;
+
     const filename = download.suggestedFilename();
+
+    console.log(
+      '[translate] Download started:',
+      filename
+    );
 
     const stream = await download.createReadStream();
 
     if (!stream) {
-        throw new Error(`No download stream for ${label}`);
+      throw new Error(
+        'Google download stream was not available'
+      );
     }
 
     const chunks = [];
 
     for await (const chunk of stream) {
-        chunks.push(chunk);
+      chunks.push(chunk);
     }
 
     const buffer = Buffer.concat(chunks);
 
     console.log(
-        `[translate] ${label}: ${filename}, ${buffer.length} bytes`
+      '[translate] Downloaded translated image:',
+      buffer.length,
+      'bytes'
+    );
+
+    /*
+     * Take a screenshot as well. This isn't returned; it's just
+     * useful if we need to debug what Google showed.
+     */
+    const screenshot = await page.screenshot({
+      type: 'png',
+      fullPage: true
+    });
+
+    console.log(
+      '[translate] Result page screenshot:',
+      screenshot.length,
+      'bytes'
     );
 
     return {
-        buffer,
-        filename
+      buffer,
+      filename
     };
-    };
 
-
-    // We should currently be showing the translation.
-    console.log(
-    '[translate] Show original state:',
-    await showOriginal.getAttribute('aria-checked')
-    );
-
-    const translatedDownload = await downloadTranslation(
-    'TRANSLATED VIEW'
-    );
-
-
-    // Now switch to original.
-    await showOriginal.click();
-
-    await page.waitForFunction(() => {
-    const button = [...document.querySelectorAll('button')]
-        .find(b => b.getAttribute('aria-label') === 'Show original');
-
-    return button &&
-        button.getAttribute('aria-checked') === 'true';
-    });
-
-    console.log('[translate] Switched to original view');
-
-    const originalDownload = await downloadTranslation(
-    'ORIGINAL VIEW'
-    );
-
-
-    // Put it back into translated view.
-    await showOriginal.click();
-
-    await page.waitForFunction(() => {
-    const button = [...document.querySelectorAll('button')]
-        .find(b => b.getAttribute('aria-label') === 'Show original');
-
-    return button &&
-        button.getAttribute('aria-checked') === 'false';
-    });
-
-    console.log('[translate] Switched back to translated view');
-
-    console.log(
-    '[translate] Download sizes:',
-    {
-        translated: translatedDownload.buffer.length,
-        original: originalDownload.buffer.length
-    }
-    );
-
-    const same =
-    translatedDownload.buffer.equals(originalDownload.buffer);
-
-    console.log(
-    '[translate] Downloads byte-identical:',
-    same
-    );
-
-    if (same) {
-    throw new Error(
-        'Google returned identical files for translated and original views'
-    );
-    }
-
-    return translatedDownload;
   } finally {
     await context.close();
   }
