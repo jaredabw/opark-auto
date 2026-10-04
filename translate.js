@@ -74,58 +74,56 @@ async function translateImage(imageBuffer) {
 
     console.log('[translate] Image uploaded');
 
-    await page.waitForTimeout(10000);
+    await page.getByText('Image translation results available').waitFor({
+    state: 'visible',
+    timeout: 30000
+    });
 
-    console.log('[translate] 10 seconds elapsed');
+    console.log('[translate] Translation result is available');
 
-    const debug = await page.evaluate(() => {
-    const text = document.body?.innerText || '';
-
-    const buttons = [...document.querySelectorAll('button')];
-
-    const showOriginal = buttons.find(
-        b => b.getAttribute('aria-label') === 'Show original'
+    const downloadButton = page.getByText(
+    'Download translation',
+    { exact: true }
     );
 
-    const images = [...document.images].map((img, i) => ({
-        index: i,
-        src: img.src.slice(0, 300),
-        width: img.naturalWidth,
-        height: img.naturalHeight,
-        alt: img.alt
-    }));
+    await downloadButton.waitFor({
+    state: 'visible',
+    timeout: 10000
+    });
 
-    return {
-        url: location.href,
+    console.log('[translate] Download translation button found');
 
-        showOriginal: showOriginal
-        ? {
-            exists: true,
-            ariaChecked: showOriginal.getAttribute('aria-checked'),
-            text: showOriginal.innerText
-            }
-        : {
-            exists: false
-            },
+    const downloadPromise = page.waitForEvent('download', {
+    timeout: 15000
+    });
 
-        imageCount: images.length,
-        images,
+    await downloadButton.click();
 
-        bodyText: text.slice(0, 8000)
-    };
+    const download = await downloadPromise;
+
+    console.log(
+    '[translate] Download started:',
+    download.suggestedFilename()
+    );
+
+    const resultBuffer = await download.createReadStream()
+    .then(async stream => {
+        const chunks = [];
+
+        for await (const chunk of stream) {
+        chunks.push(chunk);
+        }
+
+        return Buffer.concat(chunks);
     });
 
     console.log(
-    '[translate] DEBUG:',
-    JSON.stringify(debug, null, 2)
+    '[translate] Downloaded translated image:',
+    resultBuffer.length,
+    'bytes'
     );
 
-    const screenshot = await page.screenshot({
-    type: 'png',
-    fullPage: true
-    });
-
-    return screenshot;
+    return resultBuffer;
 
   } finally {
     await context.close();
