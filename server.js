@@ -146,9 +146,10 @@ app.post(
 
       fs.writeFileSync(inputPath, req.body);
 
-      // Call Python script
-      const pythonScript = path.join(__dirname, '../img-translate/main.py');
-      const venvPython = path.join(__dirname, '../img-translate/.venv/bin/python');
+      // Call Python script with paths relative to server.js
+      const imgTranslateDir = path.resolve(__dirname, '../img-translate');
+      const pythonScript = path.join(imgTranslateDir, 'main.py');
+      const venvPython = path.join(imgTranslateDir, '.venv/bin/python');
 
       // Use venv python if it exists, otherwise system python
       const pythonCmd = fs.existsSync(venvPython) ? venvPython : 'python3';
@@ -156,10 +157,10 @@ app.post(
       log(`Running Python translation: ${pythonCmd} ${pythonScript}`);
 
       const { stdout, stderr } = await execFileAsync(
-        pythonCmd,
+                pythonCmd,
         [pythonScript, inputPath, '--output', outputPath],
         {
-          cwd: path.join(__dirname, '../img-translate'),
+          cwd: imgTranslateDir,
           timeout: 120000, // 2 minute timeout
           env: {
             ...process.env,
