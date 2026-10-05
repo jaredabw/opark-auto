@@ -136,6 +136,34 @@ app.post(
       log(
         `Image translation requested (${req.body.length} bytes)`
       );
+      
+      // === PM2 Environment Debug ===
+      log('=== PM2 Environment Debug ===');
+      log(`process.env.PATH: ${process.env.PATH}`);
+      log(`process.env.HOME: ${process.env.HOME}`);
+      log(`process.env.USER: ${process.env.USER}`);
+      log(`process.env.SHELL: ${process.env.SHELL}`);
+      log(`process.cwd(): ${process.cwd()}`);
+      log(`__dirname: ${__dirname}`);
+      log(`os.tmpdir(): ${os.tmpdir()}`);
+      
+      // Check what's actually accessible
+      const checkPaths = [
+        '/bin/sh',
+        '/bin/bash',
+        '/usr/bin/python3',
+        '/usr/bin/env'
+      ];
+      
+      for (const p of checkPaths) {
+        try {
+          fs.accessSync(p, fs.constants.X_OK);
+          log(`✓ Can execute: ${p}`);
+        } catch (err) {
+          log(`✗ Cannot execute: ${p} - ${err.code}`);
+        }
+      }
+      log('=== End Debug ===');
 
       // Write input image to temp file
       const tempDir = os.tmpdir();
