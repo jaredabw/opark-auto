@@ -180,8 +180,10 @@ app.post(
       const { stdout, stderr } = await execAsync(cmd, {
         cwd: imgTranslateDir,
         timeout: 120000,
+        shell: '/bin/bash',
         env: {
           ...process.env,
+          PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
           AZURE_CV_KEY: process.env.AZURE_CV_KEY || process.env.AZURE_API_KEY,
           AZURE_CV_ENDPOINT: process.env.AZURE_CV_ENDPOINT || process.env.AZURE_ENDPOINT,
           GOOGLE_API_KEY: process.env.GOOGLE_API_KEY
