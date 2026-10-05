@@ -151,10 +151,28 @@ app.post(
       const pythonScript = path.join(imgTranslateDir, 'main.py');
       const venvPython = path.join(imgTranslateDir, '.venv/bin/python');
 
-      // Use venv python if it exists, otherwise system python
-      const pythonCmd = fs.existsSync(venvPython) ? venvPython : 'python3';
+      // Use venv python if it exists, otherwise find system python
+      let pythonCmd = venvPython;
+      if (!fs.existsSync(venvPython)) {
+        // Try common Python locations
+        const pythonPaths = [
+          '/usr/bin/python3',
+          '/usr/local/bin/python3',
+          '/opt/homebrew/bin/python3',
+          'python3',
+          'python'
+        ];
+        pythonCmd = pythonPaths.find(p => {
+          try {
+            return fs.existsSync(p) || p === 'python3' || p === 'python';
+          } catch {
+            return false;
+          }
+        }) || 'python3';
+      }
 
       log(`Running Python translation: ${pythonCmd} ${pythonScript}`);
+      log(`venv exists: ${fs.existsSync(venvPython)}, using: ${pythonCmd}`);
 
       const { stdout, stderr } = await execFileAsync(
                 pythonCmd,
