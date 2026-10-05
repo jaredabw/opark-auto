@@ -7,11 +7,11 @@ const express = require('express');
 const { DateTime } = require('luxon');
 const path = require('path');
 const fs = require('fs');
-const { execFile } = require('child_process');
+const { exec } = require('child_process');
 const { promisify } = require('util');
 const os = require('os');
 
-const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 require('dotenv').config({ path: path.join(__dirname, '.opark-credentials') });
 
@@ -174,20 +174,19 @@ app.post(
       log(`Running Python translation: ${pythonCmd} ${pythonScript}`);
       log(`venv exists: ${fs.existsSync(venvPython)}, using: ${pythonCmd}`);
 
-      const { stdout, stderr } = await execFileAsync(
-                pythonCmd,
-        [pythonScript, inputPath, '--output', outputPath],
-        {
-          cwd: imgTranslateDir,
-          timeout: 120000, // 2 minute timeout
-          env: {
-            ...process.env,
-            AZURE_CV_KEY: process.env.AZURE_CV_KEY || process.env.AZURE_API_KEY,
-            AZURE_CV_ENDPOINT: process.env.AZURE_CV_ENDPOINT || process.env.AZURE_ENDPOINT,
-            GOOGLE_API_KEY: process.env.GOOGLE_API_KEY
-          }
+      const cmd = `"${pythonCmd}" "${pythonScript}" "${inputPath}" --output "${outputPath}"`;
+      log(`Executing: ${cmd}`);
+      
+      const { stdout, stderr } = await execAsync(cmd, {
+        cwd: imgTranslateDir,
+        timeout: 120000,
+        env: {
+          ...process.env,
+          AZURE_CV_KEY: process.env.AZURE_CV_KEY || process.env.AZURE_API_KEY,
+          AZURE_CV_ENDPOINT: process.env.AZURE_CV_ENDPOINT || process.env.AZURE_ENDPOINT,
+          GOOGLE_API_KEY: process.env.GOOGLE_API_KEY
         }
-      );
+      });
 
       if (stdout) log(`Python stdout: ${stdout.trim()}`);
       if (stderr) log(`Python stderr: ${stderr.trim()}`);
