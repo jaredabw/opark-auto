@@ -8,7 +8,10 @@ const { DateTime } = require('luxon');
 const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
-const { translateImage } = require('./translate');
+const { promisify } = require('util');
+const os = require('os');
+
+const execFileAsync = promisify(execFile);
 
 require('dotenv').config({ path: path.join(__dirname, '.opark-credentials') });
 
@@ -101,13 +104,13 @@ app.post('/cancel', checkAuth, (req, res) => {
   res.json({ status: 'cancelled' });
 });
 
-// Translate an image using Google Translate's web UI.
+// Translate an image using Python OCR + translation pipeline.
 //
 // Request body:
 //   raw image/jpeg bytes
 //
 // Response:
-//   image/png screenshot of the Google Translate result page
+//   image/png with translated text overlaid
 app.post(
   '/translate-image',
   checkAuth,
@@ -120,6 +123,9 @@ app.post(
     limit: '15mb'
   }),
   async (req, res) => {
+    let inputPath = null;
+    let outputPath = null;
+
     try {
       if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
         return res.status(400).json({
@@ -131,28 +137,53 @@ app.post(
         `Image translation requested (${req.body.length} bytes)`
       );
 
-      const result = await translateImage(req.body);
+      // Write input image to temp file
+      const tempDir = os.tmpdir();
+      const inputFilename = `img-translate-${Date.now()}-input.png`;
+      const outputFilename = `img-translate-${Date.now()}-output.png`;
+      inputPath = path.join(tempDir, inputFilename);
+      outputPath = path.join(tempDir, outputFilename);
 
-      console.log(
-        `[translate] Returning ${result.filename} (${result.buffer.length} bytes)`
+      fs.writeFileSync(inputPath, req.body);
+
+      // Call Python script
+      const pythonScript = path.join(__dirname, '../img-translate/main.py');
+      const venvPython = path.join(__dirname, '../img-translate/.venv/bin/python');
+
+      // Use venv python if it exists, otherwise system python
+      const pythonCmd = fs.existsSync(venvPython) ? venvPython : 'python3';
+
+      log(`Running Python translation: ${pythonCmd} ${pythonScript}`);
+
+      const { stdout, stderr } = await execFileAsync(
+        pythonCmd,
+        [pythonScript, inputPath, '--output', outputPath],
+        {
+          cwd: path.join(__dirname, '../img-translate'),
+          timeout: 120000, // 2 minute timeout
+          env: {
+            ...process.env,
+            AZURE_CV_KEY: process.env.AZURE_CV_KEY || process.env.AZURE_API_KEY,
+            AZURE_CV_ENDPOINT: process.env.AZURE_CV_ENDPOINT || process.env.AZURE_ENDPOINT,
+            GOOGLE_API_KEY: process.env.GOOGLE_API_KEY
+          }
+        }
       );
 
-      const filename = result.filename || '';
+      if (stdout) log(`Python stdout: ${stdout.trim()}`);
+      if (stderr) log(`Python stderr: ${stderr.trim()}`);
 
-      if (filename.toLowerCase().endsWith('.png')) {
-        res.type('png');
-      } else if (
-        filename.toLowerCase().endsWith('.jpg') ||
-        filename.toLowerCase().endsWith('.jpeg')
-      ) {
-        res.type('jpeg');
-      } else if (filename.toLowerCase().endsWith('.webp')) {
-        res.type('webp');
-      } else {
-        res.type('application/octet-stream');
+      // Read output image
+      if (!fs.existsSync(outputPath)) {
+        throw new Error('Python script did not produce output file');
       }
 
-      res.send(result.buffer);
+      const resultBuffer = fs.readFileSync(outputPath);
+
+      log(`Returning translated image (${resultBuffer.length} bytes)`);
+
+      res.type('png');
+      res.send(resultBuffer);
 
       log('Image translation completed');
 
@@ -165,6 +196,14 @@ app.post(
         error: 'image translation failed',
         message: err.message
       });
+    } finally {
+      // Clean up temp files
+      if (inputPath && fs.existsSync(inputPath)) {
+        fs.unlinkSync(inputPath);
+      }
+      if (outputPath && fs.existsSync(outputPath)) {
+        fs.unlinkSync(outputPath);
+      }
     }
   }
 );
