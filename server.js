@@ -7,11 +7,8 @@ const express = require('express');
 const { DateTime } = require('luxon');
 const path = require('path');
 const fs = require('fs');
-const { exec } = require('child_process');
-const { promisify } = require('util');
+const { spawnSync } = require('child_process');
 const os = require('os');
-
-const execAsync = promisify(exec);
 
 require('dotenv').config({ path: path.join(__dirname, '.opark-credentials') });
 
@@ -202,13 +199,14 @@ app.post(
       log(`Running Python translation: ${pythonCmd} ${pythonScript}`);
       log(`venv exists: ${fs.existsSync(venvPython)}, using: ${pythonCmd}`);
 
-      const cmd = `"${pythonCmd}" "${pythonScript}" "${inputPath}" --output "${outputPath}"`;
-      log(`Executing: ${cmd}`);
+      // Use spawnSync directly - no shell, no shebang issues
+      const args = [pythonScript, inputPath, '--output', outputPath];
+      log(`Executing: ${pythonCmd} ${args.join(' ')}`);
       
-      const { stdout, stderr } = await execAsync(cmd, {
+      const result = spawnSync(pythonCmd, args, {
         cwd: imgTranslateDir,
         timeout: 120000,
-        shell: '/bin/bash',
+        encoding: 'utf8',
         env: {
           ...process.env,
           PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
@@ -218,8 +216,16 @@ app.post(
         }
       });
 
-      if (stdout) log(`Python stdout: ${stdout.trim()}`);
-      if (stderr) log(`Python stderr: ${stderr.trim()}`);
+      if (result.error) {
+        throw result.error;
+      }
+      
+      if (result.status !== 0) {
+        throw new Error(`Python exited with code ${result.status}: ${result.stderr}`);
+      }
+
+      if (result.stdout) log(`Python output: ${result.stdout.trim()}`);
+      if (result.stderr) log(`Python stderr: ${result.stderr.trim()}`);
 
       // Read output image
       if (!fs.existsSync(outputPath)) {
