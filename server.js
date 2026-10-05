@@ -171,8 +171,8 @@ app.post(
 
       fs.writeFileSync(inputPath, req.body);
 
-      // Call Python script with paths relative to server.js
-      const imgTranslateDir = path.resolve(__dirname, '../img-translate');
+      // Call Python script - it's inside the repo
+      const imgTranslateDir = path.resolve(__dirname, 'img-translate');
       const pythonScript = path.join(imgTranslateDir, 'main.py');
       const venvPython = path.join(imgTranslateDir, '.venv/bin/python');
 
