@@ -28,28 +28,49 @@ function log(msg) {
 }
 
 async function ntfy(message) {
-  // Pick a private, hard-to-guess topic name here.
   const NTFY_TOPIC = process.env.OPARK_NTFY_TOPIC;
   if (!NTFY_TOPIC) return;
-  try {
-    await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
-      method: 'POST',
-      body: message,
-    });
-  } catch (_) {
-    // Don't let a failed alert mask the original error in logs.
+  for (let i = 1; i <= 3; i++) {
+    try {
+      const res = await fetch(`https://ntfy.sh/${NTFY_TOPIC}`, {
+        method: 'POST',
+        body: message,
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) return;
+      log(`ntfy attempt ${i} got HTTP ${res.status}`);
+    } catch (err) {
+      log(`ntfy attempt ${i} failed: ${err.message} ${err.cause?.code ?? ''}`);
+    }
+    await new Promise(r => setTimeout(r, 5000));
   }
 }
+async function gotoWithRetry(page, url, attempts = 5) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      return;
+    } catch (err) {
+      log(`goto attempt ${i}/${attempts} failed: ${err.message.split('\n')[0]}`);
+      if (i === attempts) throw err;
+      await new Promise(r => setTimeout(r, 60000)); // wait 1 min between tries
+    }
+  }
+}
+
 
 async function run() {
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage();
 
+  page.on('requestfailed', r => log(`requestfailed: ${r.url()} ${r.failure()?.errorText}`));
+  page.on('response', r => { if (r.url().startsWith('https://portal.opark.com.au')) log(`response: ${r.status()} ${r.url()}`); });
+
   try {
     log('Starting run');
 
     log('Navigating to portal.opark.com.au');
-    await page.goto('https://portal.opark.com.au');
+    await gotoWithRetry(page, 'https://portal.opark.com.au');
     log('Portal loaded successfully');
 
     // --- Login (two-step: username -> Continue -> password) ---
