@@ -49,12 +49,30 @@ All endpoints require the header `x-auth-token: <OPARK_SCHEDULER_TOKEN>`.
 | `POST` | `/run-now` | Trigger renewal immediately (testing) |
 | `POST` | `/cancel` | Cancel a pending scheduled run |
 
+`/schedule` and `/run-now` accept an optional `x-opark-zone` header.
+Omit it to use `OPARK_ZONE` from the environment. No request body is needed.
+The zone can be a unique substring of the displayed zone name; use the full name
+if a shorter substring matches multiple zones. Empty values return HTTP 400.
+A scheduled run keeps the zone selected when the request was made.
+The `/schedule` response includes `zone` alongside `status` and `for`.
+`for` and `/status`'s `scheduledFor` use Melbourne time in `HH:mm dd/MM/yy` format,
+for example `05:02 13/11/26`.
+`/status` returns `scheduledFor` and `zone`; both are `null` when no run is pending.
+The returned zone is the supplied substring or the `OPARK_ZONE` default.
+
+```bash
+curl -X POST http://localhost:3000/schedule \
+  -H "x-auth-token: YOUR_TOKEN" \
+  -H "x-opark-zone: Caulfield - Multi-Level - Blue"
+```
+
 ## iPhone Shortcut
 
 Use **Get Contents of URL** with:
 - URL: `https://opark.yourdomain.com/schedule`
 - Method: `POST`
 - Headers: `x-auth-token` → your token
+- Optional header: `x-opark-zone` → your zone name or unique substring
 
 Add **Get Dictionary from Input** → **Get Dictionary Value** for `for` to see the scheduled time. Run the shortcut after you park each day.
 

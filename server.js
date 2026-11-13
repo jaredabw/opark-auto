@@ -28,6 +28,7 @@ function log(msg) {
 }
 
 let scheduledFor = null; // ISO string of the currently pending run, or null
+let scheduledZone = null; // Zone for the currently pending run, or null
 let timer = null;
 
 function nextFiveAm() {
@@ -39,10 +40,13 @@ function nextFiveAm() {
   return target;
 }
 
-function runRenewal() {
+function runRenewal(zone = process.env.OPARK_ZONE) {
   log('Firing scheduled renewal now');
   scheduledFor = null;
-  execFile('node', [path.join(__dirname, 'renew.js')], (err, stdout, stderr) => {
+  scheduledZone = null;
+  execFile('node', [path.join(__dirname, 'renew.js')], {
+    env: { ...process.env, OPARK_ZONE: zone },
+  }, (err, stdout, stderr) => {
     if (err) {
       log(`renew.js exited with error: ${err.message}`);
     } else {
@@ -53,12 +57,13 @@ function runRenewal() {
   });
 }
 
-function scheduleNext() {
+function scheduleNext(zone = process.env.OPARK_ZONE) {
   if (timer) clearTimeout(timer);
   const target = nextFiveAm();
   const msUntil = target.toMillis() - Date.now();
   scheduledFor = target.toISO();
-  timer = setTimeout(runRenewal, msUntil);
+  scheduledZone = zone;
+  timer = setTimeout(() => runRenewal(zone), msUntil);
   log(`Scheduled next run for ${scheduledFor} (in ${Math.round(msUntil / 60000)} min)`);
   return target;
 }
@@ -74,20 +79,33 @@ function checkAuth(req, res, next) {
   next();
 }
 
+function checkZone(req, res, next) {
+  const zone = req.get('x-opark-zone');
+  if (zone !== undefined && (typeof zone !== 'string' || !zone.trim())) {
+    return res.status(400).json({ error: 'x-opark-zone must be a non-empty string' });
+  }
+  next();
+}
+
 // Call this from your phone after you park.
-app.post('/schedule', checkAuth, (req, res) => {
-  const target = scheduleNext();
-  res.json({ status: 'scheduled', for: target.toISO() });
+app.post('/schedule', checkAuth, checkZone, (req, res) => {
+  const target = scheduleNext(req.get('x-opark-zone'));
+  res.json({ status: 'scheduled', for: target.toFormat('HH:mm dd/LL/yy'), zone: scheduledZone });
 });
 
 // Check what's currently pending.
 app.get('/status', checkAuth, (req, res) => {
-  res.json({ scheduledFor });
+  res.json({
+    scheduledFor: scheduledFor
+      ? DateTime.fromISO(scheduledFor).setZone(TZ).toFormat('HH:mm dd/LL/yy')
+      : null,
+    zone: scheduledZone,
+  });
 });
 
 // Manual immediate trigger, handy for testing.
-app.post('/run-now', checkAuth, (req, res) => {
-  runRenewal();
+app.post('/run-now', checkAuth, checkZone, (req, res) => {
+  runRenewal(req.get('x-opark-zone'));
   res.json({ status: 'triggered' });
 });
 
@@ -96,6 +114,7 @@ app.post('/cancel', checkAuth, (req, res) => {
   if (timer) clearTimeout(timer);
   timer = null;
   scheduledFor = null;
+  scheduledZone = null;
   log('Cancelled pending run');
   res.json({ status: 'cancelled' });
 });
