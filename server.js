@@ -90,14 +90,14 @@ function checkZone(req, res, next) {
 // Call this from your phone after you park.
 app.post('/schedule', checkAuth, checkZone, (req, res) => {
   const target = scheduleNext(req.get('x-opark-zone'));
-  res.json({ status: 'scheduled', for: target.toFormat('HH:mm dd/LL/yy'), zone: scheduledZone });
+  res.json({ status: 'scheduled', for: target.toFormat('HH:mm dd-LL-yy'), zone: scheduledZone });
 });
 
 // Check what's currently pending.
 app.get('/status', checkAuth, (req, res) => {
   res.json({
     for: scheduledFor
-      ? DateTime.fromISO(scheduledFor).setZone(TZ).toFormat('HH:mm dd/LL/yy')
+      ? DateTime.fromISO(scheduledFor).setZone(TZ).toFormat('HH:mm dd-LL-yy')
       : null,
     zone: scheduledZone,
   });

@@ -55,8 +55,8 @@ The zone can be a unique substring of the displayed zone name; use the full name
 if a shorter substring matches multiple zones. Empty values return HTTP 400.
 A scheduled run keeps the zone selected when the request was made.
 The `/schedule` response includes `zone` alongside `status` and `for`.
-`for` and `/status`'s `scheduledFor` use Melbourne time in `HH:mm dd/MM/yy` format,
-for example `05:02 13/11/26`.
+`for` and `/status`'s `scheduledFor` use Melbourne time in `HH:mm dd-MM-yy` format,
+for example `05:02 13-11-26`.
 `/status` returns `scheduledFor` and `zone`; both are `null` when no run is pending.
 The returned zone is the supplied substring or the `OPARK_ZONE` default.
 
