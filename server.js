@@ -96,7 +96,7 @@ app.post('/schedule', checkAuth, checkZone, (req, res) => {
 // Check what's currently pending.
 app.get('/status', checkAuth, (req, res) => {
   res.json({
-    scheduledFor: scheduledFor
+    for: scheduledFor
       ? DateTime.fromISO(scheduledFor).setZone(TZ).toFormat('HH:mm dd/LL/yy')
       : null,
     zone: scheduledZone,
